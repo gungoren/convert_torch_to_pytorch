@@ -1,18 +1,14 @@
 from __future__ import print_function
 
-import os
-import math
 import torch
 import argparse
-import numpy as np
 import torch.nn as nn
-import torch.optim as optim
 import torch.legacy.nn as lnn
-import torch.nn.functional as F
 
 from functools import reduce
 from torch.autograd import Variable
 from torch.utils.serialization import load_lua
+
 
 class LambdaBase(nn.Sequential):
     def __init__(self, fn, *args):
@@ -25,19 +21,41 @@ class LambdaBase(nn.Sequential):
             output.append(module(input))
         return output if output else input
 
+
 class Lambda(LambdaBase):
     def forward(self, input):
         return self.lambda_func(self.forward_prepare(input))
+
 
 class LambdaMap(LambdaBase):
     def forward(self, input):
         # result is Variables list [Variable1, Variable2, ...]
         return list(map(self.lambda_func,self.forward_prepare(input)))
 
+
 class LambdaReduce(LambdaBase):
     def forward(self, input):
         # result is a Variable
         return reduce(self.lambda_func,self.forward_prepare(input))
+
+
+class TVLoss(nn.Module):
+    def __init__(self,TVLoss_weight=1):
+        super(TVLoss,self).__init__()
+        self.TVLoss_weight = TVLoss_weight
+
+    def forward(self,x):
+        batch_size = x.size()[0]
+        h_x = x.size()[2]
+        w_x = x.size()[3]
+        count_h = self._tensor_size(x[:,:,1:,:])
+        count_w = self._tensor_size(x[:,:,:,1:])
+        h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()
+        w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
+        return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size
+
+    def _tensor_size(self,t):
+        return t.size()[1]*t.size()[2]*t.size()[3]
 
 
 def copy_param(m,n):
@@ -46,9 +64,38 @@ def copy_param(m,n):
     if hasattr(n,'running_mean'): n.running_mean.copy_(m.running_mean)
     if hasattr(n,'running_var'): n.running_var.copy_(m.running_var)
 
+    """
+    'gradBias': tensor([ -351.3330,   165.0902,   290.3964,  -291.7970,   497.9926,   183.7045,
+            308.7649,    29.8569,  -530.7481,  -221.9979,   371.7733,    65.0414,
+            -71.5129,   256.5625,  -469.7609,   -40.3457,     0.0000,  1150.9756,
+          -1129.0902,   846.3932,  -915.6177,     9.5416,   746.8489,  -901.3214,
+           1026.6074,     0.0000,  -565.8074,   397.7570,  -857.5967,  -170.4411,
+            -15.9284,   -74.1862]), 
+    'prev_batch_size': 4, 
+    'output': tensor([]), 
+    'gradInput': tensor([]), 
+    'bn': nn.SpatialBatchNormalization, 
+     
+    'momentum': 0, 
+    'affine': True, 
+     
+    '_type': 'torch.FloatTensor', 
+    'gradWeight': tensor([ -538.0533,  -105.5218,  -100.0730,  -631.0015,   880.2950,   346.7876,
+            260.6177,   -59.0490,  -422.5519,  -327.2541,   107.5322,  -853.6113,
+           -228.9415,   469.5724,  -415.7707,   457.5847,     0.0000,   921.7281,
+          -1999.6241,  -281.6465, -1309.0161,   127.4838,   947.5728,  -723.5170,
+            587.3596,     0.0000,  -906.7662,   543.8390,   -55.9081,  -125.9674,
+            562.7509,  1257.9780]), 
+    
+    'eps': 1e-05, 
+    'nOutput': 32
+    """
+
+
 def add_submodule(seq, *args):
     for n in args:
         seq.add_module(str(len(seq._modules)),n)
+
 
 def lua_recursive_model(module,seq):
     for m in module.modules:
@@ -63,6 +110,13 @@ def lua_recursive_model(module,seq):
             n = nn.Conv2d(m.nInputPlane,m.nOutputPlane,(m.kW,m.kH),(m.dW,m.dH),(m.padW,m.padH),1,m.groups,bias=(m.bias is not None))
             copy_param(m,n)
             add_submodule(seq,n)
+        elif name == 'TVLoss' or name == 'nn.TVLoss':
+            n = TVLoss(m.strength)
+            add_submodule(seq, n)
+        elif name == 'InstanceNormalization' or name == 'nn.InstanceNormalization':
+            n = nn.InstanceNorm2d(m.running_mean.size(0), m.eps, m.momentum, m.affine, track_running_stats=True)
+            copy_param(m, n)
+            add_submodule(seq, n)
         elif name == 'SpatialBatchNormalization':
             n = nn.BatchNorm2d(m.running_mean.size(0), m.eps, m.momentum, m.affine)
             copy_param(m,n)
@@ -170,6 +224,10 @@ def lua_recursive_source(module):
                 m.nOutputPlane,(m.kW,m.kH),(m.dW,m.dH),(m.padW,m.padH),1,m.groups,m.bias is not None)]
         elif name == 'SpatialBatchNormalization':
             s += ['nn.BatchNorm2d({},{},{},{}),#BatchNorm2d'.format(m.running_mean.size(0), m.eps, m.momentum, m.affine)]
+        elif name == 'nn.InstanceNormalization':
+            s += ['nn.InstanceNorm2d({},{},{},{}),#InstanceNorm2d'.format(m.running_mean.size(0), m.eps, m.momentum, m.affine)]
+        elif name == 'nn.TVLoss':
+            s += ['TVLoss({}),#TVLoss'.format(m.strength)]
         elif name == 'VolumetricBatchNormalization':
             s += ['nn.BatchNorm3d({},{},{},{}),#BatchNorm3d'.format(m.running_mean.size(0), m.eps, m.momentum, m.affine)]
         elif name == 'ReLU':
@@ -234,6 +292,7 @@ def lua_recursive_source(module):
     s = map(lambda x: '\t{}'.format(x),s)
     return s
 
+
 def simplify_source(s):
     s = map(lambda x: x.replace(',(1, 1),(0, 0),1,1,bias=True),#Conv2d',')'),s)
     s = map(lambda x: x.replace(',(0, 0),1,1,bias=True),#Conv2d',')'),s)
@@ -254,6 +313,7 @@ def simplify_source(s):
     s = map(lambda x: x[1:],s)
     s = reduce(lambda x,y: x+y, s)
     return s
+
 
 def torch_to_pytorch(t7_filename,outputname=None):
     model = load_lua(t7_filename,unknown_classes=True)
@@ -291,6 +351,24 @@ class LambdaMap(LambdaBase):
 class LambdaReduce(LambdaBase):
     def forward(self, input):
         return reduce(self.lambda_func,self.forward_prepare(input))
+
+class TVLoss(nn.Module):
+    def __init__(self,TVLoss_weight=1):
+        super(TVLoss,self).__init__()
+        self.TVLoss_weight = TVLoss_weight
+
+    def forward(self,x):
+        batch_size = x.size()[0]
+        h_x = x.size()[2]
+        w_x = x.size()[3]
+        count_h = self._tensor_size(x[:,:,1:,:])
+        count_w = self._tensor_size(x[:,:,:,1:])
+        h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()
+        w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
+        return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size
+
+    def _tensor_size(self,t):
+        return t.size()[1]*t.size()[2]*t.size()[3]
 '''
     varname = t7_filename.replace('.t7','').replace('.','_').replace('-','_')
     s = '{}\n\n{} = {}'.format(header,varname,s[:-2])
