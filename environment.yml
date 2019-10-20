@@ -1,0 +1,11 @@
+name: convert
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+- python=3.6
+- keras
+- numpy
+- pip
+- torch=0.4.1
+- torchvision=0.2.1
