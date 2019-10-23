@@ -372,9 +372,9 @@ class TransformerNetwork(nn.Module):
     with open(outputname+'.py', "w") as pyfile:
         pyfile.write(s)
 
-    model = TransformerNetwork()
     n = nn.Sequential()
     lua_recursive_model(model,n)
+    model = TransformerNetwork()
     model.style = n
     torch.save(model.state_dict(),outputname+'.pth')
 
