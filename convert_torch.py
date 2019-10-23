@@ -58,6 +58,15 @@ class TVLoss(nn.Module):
         return t.size()[1]*t.size()[2]*t.size()[3]
 
 
+class TransformerNetwork(nn.Module):
+    def __init__(self):
+        super(TransformerNetwork, self).__init__()
+        self.style = nn.Sequential()
+
+    def forward(self, input):
+        return self.style.forward(input)
+
+
 def copy_param(m,n):
     if m.weight is not None: n.weight.data.copy_(m.weight)
     if m.bias is not None: n.bias.data.copy_(m.bias)
@@ -344,17 +353,30 @@ class TVLoss(nn.Module):
 
     def _tensor_size(self, t):
         return t.size()[1] * t.size()[2] * t.size()[3]
+
+
+class TransformerNetwork(nn.Module):
+    def __init__(self):
+        super(TransformerNetwork, self).__init__()
+'''
+
+    footer = '''
+
+    def forward(self, input):
+        return self.style.forward(input)
 '''
     varname = t7_filename.replace('.t7','').replace('.','_').replace('-','_')
-    s = '{}\n\n{} = {}'.format(header,varname.split('/')[-1],s[:-2])
+    s = '{}\n\n        self.style = {}{}'.format(header, s[:-2], footer)
 
     if outputname is None: outputname=varname
     with open(outputname+'.py', "w") as pyfile:
         pyfile.write(s)
 
+    model = TransformerNetwork()
     n = nn.Sequential()
     lua_recursive_model(model,n)
-    torch.save(n.state_dict(),outputname+'.pth')
+    model.style = n
+    torch.save(model.state_dict(),outputname+'.pth')
 
 
 parser = argparse.ArgumentParser(description='Convert torch t7 model to pytorch')
