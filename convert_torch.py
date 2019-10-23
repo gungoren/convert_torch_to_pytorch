@@ -271,7 +271,7 @@ def lua_recursive_source(module):
             s += [')']
         else:
             s += '# ' + name + ' Not Implement,\n'
-    s = map(lambda x: '\t{}'.format(x),s)
+    s = map(lambda x: '            {}'.format(x),s)
     return s
 
 
@@ -366,7 +366,7 @@ class TransformerNetwork(nn.Module):
         return self.style.forward(input)
 '''
     varname = t7_filename.replace('.t7','').replace('.','_').replace('-','_')
-    s = '{}\n\n        self.style = {}{}'.format(header, s[:-2], footer)
+    s = '{}self.style = {}{}'.format(header, s[:-2], footer)
 
     if outputname is None: outputname=varname
     with open(outputname+'.py', "w") as pyfile:
