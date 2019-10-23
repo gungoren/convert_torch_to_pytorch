@@ -40,7 +40,7 @@ class LambdaReduce(LambdaBase):
 
 
 class TVLoss(nn.Module):
-    def __init__(self,TVLoss_weight=1):
+    def __init__(self, TVLoss_weight=1):
         super(TVLoss,self).__init__()
         self.TVLoss_weight = TVLoss_weight
 
@@ -52,7 +52,7 @@ class TVLoss(nn.Module):
         count_w = self._tensor_size(x[:,:,:,1:])
         h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()
         w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
-        return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size
+        return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size + x
 
     def _tensor_size(self,t):
         return t.size()[1]*t.size()[2]*t.size()[3]
@@ -246,7 +246,7 @@ def lua_recursive_source(module):
             s += ['Lambda(lambda x,lrn={}: Variable(lrn.forward(x.data)))'.format(lrn)]
 
         elif name == 'Sequential':
-            s += ['nn.Sequential( # Sequential']
+            s += ['nn.Sequential(  # Sequential']
             s += lua_recursive_source(m)
             s += [')']
         elif name == 'ConcatTable':
@@ -294,13 +294,11 @@ def torch_to_pytorch(t7_filename,outputname=None):
     model.gradInput = None
     slist = lua_recursive_source(lnn.Sequential().add(model))
     s = simplify_source(slist)
-    header = '''
-import torch
+    header = '''import torch
 import torch.nn as nn
-import torch.legacy.nn as lnn
 
 from functools import reduce
-from torch.autograd import Variable
+
 
 class LambdaBase(nn.Sequential):
     def __init__(self, fn, *args):
@@ -313,38 +311,42 @@ class LambdaBase(nn.Sequential):
             output.append(module(input))
         return output if output else input
 
+
 class Lambda(LambdaBase):
     def forward(self, input):
         return self.lambda_func(self.forward_prepare(input))
 
+
 class LambdaMap(LambdaBase):
     def forward(self, input):
-        return list(map(self.lambda_func,self.forward_prepare(input)))
+        return list(map(self.lambda_func, self.forward_prepare(input)))
+
 
 class LambdaReduce(LambdaBase):
     def forward(self, input):
-        return reduce(self.lambda_func,self.forward_prepare(input))
+        return reduce(self.lambda_func, self.forward_prepare(input))
+
 
 class TVLoss(nn.Module):
-    def __init__(self,TVLoss_weight=1):
-        super(TVLoss,self).__init__()
+    def __init__(self, TVLoss_weight=1):
+        super(TVLoss, self).__init__()
         self.TVLoss_weight = TVLoss_weight
 
-    def forward(self,x):
+    def forward(self, x):
         batch_size = x.size()[0]
         h_x = x.size()[2]
         w_x = x.size()[3]
-        count_h = self._tensor_size(x[:,:,1:,:])
-        count_w = self._tensor_size(x[:,:,:,1:])
-        h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()
-        w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
-        return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size
+        count_h = self._tensor_size(x[:, :, 1:, :])
+        count_w = self._tensor_size(x[:, :, :, 1:])
+        h_tv = torch.pow((x[:, :, 1:, :] - x[:, :, :h_x - 1, :]), 2).sum()
+        w_tv = torch.pow((x[:, :, :, 1:] - x[:, :, :, :w_x - 1]), 2).sum()
+        return self.TVLoss_weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size + x
 
-    def _tensor_size(self,t):
-        return t.size()[1]*t.size()[2]*t.size()[3]
+    def _tensor_size(self, t):
+        return t.size()[1] * t.size()[2] * t.size()[3]
 '''
     varname = t7_filename.replace('.t7','').replace('.','_').replace('-','_')
-    s = '{}\n\n{} = {}'.format(header,varname,s[:-2])
+    s = '{}\n\n{} = {}'.format(header,varname.split('/')[-1],s[:-2])
 
     if outputname is None: outputname=varname
     with open(outputname+'.py', "w") as pyfile:
