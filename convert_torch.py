@@ -198,7 +198,7 @@ def lua_recursive_source(module):
         elif name == 'SpatialBatchNormalization':
             s += ['nn.BatchNorm2d({},{},{},{}),#BatchNorm2d'.format(m.running_mean.size(0), m.eps, m.momentum, m.affine)]
         elif name == 'nn.InstanceNormalization':
-            s += ['nn.InstanceNorm2d({},{},{},{}),#InstanceNorm2d'.format(m.running_mean.size(0), m.eps, m.momentum, m.affine)]
+            s += ['nn.InstanceNorm2d({},{},{},{},{}),#InstanceNorm2d'.format(m.running_mean.size(0), m.eps, m.momentum, m.affine, True)]
         elif name == 'nn.TVLoss':
             s += ['TVLoss({}),#TVLoss'.format(m.strength)]
         elif name == 'VolumetricBatchNormalization':
