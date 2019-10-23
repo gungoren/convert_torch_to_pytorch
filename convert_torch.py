@@ -366,7 +366,7 @@ class TransformerNetwork(nn.Module):
         return self.style.forward(input)
 '''
     varname = t7_filename.replace('.t7','').replace('.','_').replace('-','_')
-    s = '{}self.style = {}{}'.format(header, s[:-2], footer)
+    s = '{}        self.style = {}{}'.format(header, s[:-2], footer)
 
     if outputname is None: outputname=varname
     with open(outputname+'.py', "w") as pyfile:
